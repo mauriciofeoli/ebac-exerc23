@@ -45,27 +45,55 @@ jobs:
         if: always()
         run: |
           mkdir -p site
-          python3 - <<'PY'
-          from html import escape
-          from pathlib import Path
+          node <<'NODE'
+          const fs = require('fs')
+          const path = require('path')
 
-          reports = sorted(Path("cypress/reports/junit").glob("*.xml"))
-          sections = []
-          for report in reports:
-              sections.append(
-                  f"<h2>{escape(report.name)}</h2><pre>{escape(report.read_text())}</pre>"
-              )
+          const junitDir = path.join('cypress', 'reports', 'junit')
+          const files = fs.existsSync(junitDir)
+            ? fs.readdirSync(junitDir).filter((file) => file.endsWith('.xml')).sort()
+            : []
 
-          body = "".join(sections) or "<p>Nenhum relatorio JUnit foi gerado.</p>"
-          Path("site/index.html").write_text(
-              "<!doctype html><html lang='pt-BR'><head><meta charset='utf-8'>"
-              "<title>Resultados Cypress</title>"
-              "<style>body{font-family:system-ui;max-width:1100px;margin:2rem auto;padding:0 1rem}"
-              "pre{overflow:auto;background:#f5f5f5;padding:1rem}</style></head>"
-              f"<body><h1>Resultados dos testes Cypress</h1>{body}</body></html>",
-              encoding="utf-8",
-          )
-          PY
+          const rows = files.length
+            ? files.map((file) => {
+                const xml = fs.readFileSync(path.join(junitDir, file), 'utf8')
+                const testsMatch = xml.match(/tests="(\d+)"/)
+                const failuresMatch = xml.match(/failures="(\d+)"/)
+                const total = testsMatch ? Number(testsMatch[1]) : 0
+                const failed = failuresMatch ? Number(failuresMatch[1]) : 0
+                return `<tr><td>${file}</td><td>${total}</td><td>${total - failed}</td><td>${failed}</td></tr>`
+              }).join('')
+            : '<tr><td colspan="4">Nenhum relatorio gerado ainda.</td></tr>'
+
+          const html = `<!DOCTYPE html>
+          <html lang="pt-BR">
+            <head>
+              <meta charset="UTF-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+              <title>Relatorio Cypress - Modulo 23</title>
+              <style>
+                body { font-family: Arial, sans-serif; margin: 40px; background: #f4f7fb; color: #1f2937; }
+                .container { max-width: 900px; margin: 0 auto; background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
+                h1 { margin-top: 0; }
+                table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                th, td { border: 1px solid #dbe3ee; padding: 12px 16px; text-align: left; }
+                th { background: #e5ecf8; }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <h1>Relatorio de testes Cypress</h1>
+                <p>Projeto: EBAC Exercicio Modulo 23</p>
+                <table>
+                  <thead><tr><th>Arquivo</th><th>Total</th><th>Passaram</th><th>Falharam</th></tr></thead>
+                  <tbody>${rows}</tbody>
+                </table>
+              </div>
+            </body>
+          </html>`
+
+          fs.writeFileSync(path.join('site', 'index.html'), html, 'utf8')
+          NODE
 
       - name: Upload do relatorio como artefato
         if: always()

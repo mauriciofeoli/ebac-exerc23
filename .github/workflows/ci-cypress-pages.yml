@@ -1,0 +1,84 @@
+name: CI Cypress Pages
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout do codigo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Executar testes Cypress
+        id: cypress
+        continue-on-error: true
+        run: |
+          mkdir -p cypress/reports/junit
+          npx cypress run --reporter junit --reporter-options "mochaFile=cypress/reports/junit/results-[hash].xml,toConsole=true"
+
+      - name: Gerar relatorio HTML
+        if: always()
+        run: |
+          mkdir -p site
+          python3 - <<'PY'
+          from html import escape
+          from pathlib import Path
+
+          reports = sorted(Path("cypress/reports/junit").glob("*.xml"))
+          sections = []
+          for report in reports:
+              sections.append(
+                  f"<h2>{escape(report.name)}</h2><pre>{escape(report.read_text())}</pre>"
+              )
+
+          body = "".join(sections) or "<p>Nenhum relatorio JUnit foi gerado.</p>"
+          Path("site/index.html").write_text(
+              "<!doctype html><html lang='pt-BR'><head><meta charset='utf-8'>"
+              "<title>Resultados Cypress</title>"
+              "<style>body{font-family:system-ui;max-width:1100px;margin:2rem auto;padding:0 1rem}"
+              "pre{overflow:auto;background:#f5f5f5;padding:1rem}</style></head>"
+              f"<body><h1>Resultados dos testes Cypress</h1>{body}</body></html>",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload do relatorio como artefato
+        if: always()
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./site
+
+  deploy:
+    needs: test
+    if: always() && needs.test.result == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy para GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
